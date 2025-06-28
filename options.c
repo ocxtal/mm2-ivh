@@ -62,6 +62,15 @@ void mm_mapopt_init(mm_mapopt_t *opt)
 
 	opt->pe_ori = 0; // FF
 	opt->pe_bonus = 33;
+
+	opt->max_overhang = 10000;
+	opt->min_internal = 50000;
+	opt->wing = 0;
+	opt->max_ivh_span = 0;
+	opt->rep_flt_span = 0;
+	opt->max_rep = 24;
+	opt->tie_rescue_w = 0;
+	opt->drop_bnd_ivh = 0;
 }
 
 void mm_mapopt_update(mm_mapopt_t *opt, const mm_idx_t *mi)
@@ -98,6 +107,23 @@ int mm_set_opt(const char *preset, mm_idxopt_t *io, mm_mapopt_t *mo)
 		mo->min_chain_score = 100, mo->pri_ratio = 0.0f, mo->max_chain_skip = 25;
 		mo->bw = mo->bw_long = 2000;
 		mo->occ_dist = 0;
+	} else if (strcmp(preset, "ivh-ava-ont") == 0 || strcmp(preset, "ivh-ava-ont-ul") == 0) {
+		io->k = 19, io->w = 15;
+		// the following settings are the same as ava-ont
+		mo->flag |= MM_F_ALL_CHAINS | MM_F_NO_DIAG | MM_F_NO_DUAL | MM_F_NO_LJOIN;
+		mo->min_chain_score = 100, mo->pri_ratio = 0.0f, mo->max_chain_skip = 25;
+		mo->bw = mo->bw_long = 2000;
+		mo->occ_dist = 0;
+		// interval hashing options
+		mo->wing = 3, mo->max_ivh_span = 20000;
+		// homopolimer/short tandem repeat filtering parameters. enabled along with interval hashing
+		mo->rep_flt_span = 1000, mo->max_rep = 24, mo->tie_rescue_w = 12;
+		// --improved-ava settings; though it's disabled by default
+		mo->max_overhang = 10000, mo->min_internal = 50000;
+	} else if (strcmp(preset, "ivh") == 0) {
+		// this only enables interval hashing
+		mo->wing = 3, mo->max_ivh_span = 20000;
+		mo->rep_flt_span = 1000, mo->max_rep = 24, mo->tie_rescue_w = 12;
 	} else if (strcmp(preset, "map10k") == 0 || strcmp(preset, "map-pb") == 0) {
 		io->flag |= MM_I_HPC, io->k = 19;
 	} else if (strcmp(preset, "ava-pb") == 0) {
@@ -206,7 +232,7 @@ int mm_check_opt(const mm_idxopt_t *io, const mm_mapopt_t *mo)
 			fprintf(stderr, "[ERROR]\033[1;31m -N must be no less than 0\033[0m\n");
 		return -4;
 	}
-	if (mo->best_n == 0 && mm_verbose >= 2)
+	if (mo->best_n == 0 && !(mo->flag&MM_F_IMPROVED_AVA) && mm_verbose >= 2)
 		fprintf(stderr, "[WARNING]\033[1;31m '-N 0' reduces mapping accuracy. Please use '--secondary=no' instead.\033[0m\n");
 	if (mo->pri_ratio < 0.0f || mo->pri_ratio > 1.0f) {
 		if (mm_verbose >= 1)

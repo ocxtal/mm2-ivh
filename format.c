@@ -363,6 +363,17 @@ static inline void write_tags(kstring_t *s, const mm_reg1_t *r)
 		else snprintf(buf, 16, "%.4f", r->div);
 		mm_sprintf_lite(s, "\tdv:f:%s", buf);
 	}
+	// interval-hash-augmented minimizer all-vs-all
+	if (r->frac_flt > 0.0 || r->frac_hit > 0.0) {
+		char buf[16];
+		if (r->frac_flt == 0.0f) buf[0] = '0', buf[1] = 0;
+		else snprintf(buf, 16, "%.4f", r->frac_flt);
+		mm_sprintf_lite(s, "\tfl:f:%s", buf);
+
+		if (r->frac_hit == 0.0f) buf[0] = '0', buf[1] = 0;
+		else snprintf(buf, 16, "%.4f", r->frac_hit);
+		mm_sprintf_lite(s, "\tht:f:%s", buf);
+	}
 	if (r->split) mm_sprintf_lite(s, "\tzd:i:%d", r->split);
 }
 

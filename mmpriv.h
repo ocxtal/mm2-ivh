@@ -15,6 +15,7 @@
 #define MM_DBG_PRINT_ALN_SEQ 0x8
 #define MM_DBG_PRINT_CHAIN   0x10
 #define MM_DBG_SEED_FREQ     0x20
+#define MM_DBG_PRINT_SEED2   0x100
 
 #define MM_SEED_LONG_JOIN  (1ULL<<40)
 #define MM_SEED_IGNORE     (1ULL<<41)
@@ -40,9 +41,8 @@ extern "C" {
 
 typedef struct {
 	uint32_t n;
-	uint32_t q_pos;
-	uint32_t q_span:31, flt:1;
-	uint32_t seg_id:31, is_tandem:1;
+	uint32_t q_span:8, unused: 22, flt:1, is_tandem:1;
+	uint64_t y;	// rid, qpos
 	const uint64_t *cr;
 } mm_seed_t;
 
@@ -57,12 +57,15 @@ double realtime(void);
 long peakrss(void);
 
 void radix_sort_128x(mm128_t *beg, mm128_t *end);
+void radix_sort_128y(mm128_t *beg, mm128_t *end);
 void radix_sort_64(uint64_t *beg, uint64_t *end);
+void radix_sort_32(uint32_t *beg, uint32_t *end);
 uint32_t ks_ksmall_uint32_t(size_t n, uint32_t arr[], size_t kk);
 
 void mm_sketch(void *km, const char *str, int len, int w, int k, uint32_t rid, int is_hpc, mm128_v *p);
 
-mm_seed_t *mm_collect_matches(void *km, int *_n_m, int qlen, int max_occ, int max_max_occ, int dist, const mm_idx_t *mi, const mm128_v *mv, int64_t *n_a, int *rep_len, int *n_mini_pos, uint64_t **mini_pos);
+mm_seed_t *mm_seed_collect_all(void *km, const mm_idx_t *mi, const mm128_v *mv, int32_t *n_m_);
+mm_seed_t *mm_collect_matches(void *km, int *_n_m, int qlen, const char *qname, int max_occ, int max_max_occ, int dist, const mm_idx_t *mi, const mm128_v *mv, int64_t *n_a, int *rep_len, int *n_mini_pos, uint64_t **mini_pos);
 void mm_seed_mz_flt(void *km, mm128_v *mv, int32_t q_occ_max, float q_occ_frac);
 
 double mm_event_identity(const mm_reg1_t *r);
@@ -123,6 +126,31 @@ static inline float mg_log2(float x) // NB: this doesn't work when x<2
 	log_2 += (-0.34484843f * z.f + 2.02466578f) * z.f - 0.67487759f;
 	return log_2;
 }
+
+// interval hashing core (in ivh.c)
+#define EMB_SIG_SHIFT    (40)
+#define MAX_MAX_EMB_SPAN ((1<<22)-1)
+typedef struct {
+	uint32_t fc: 4, rc: 4, iv: 22, aux: 2;
+	uint32_t mini_idx: 31, is_first: 1;
+} mm_ivh_idx_t;
+
+typedef struct {
+	uint32_t is_rev: 4, unused: 4, iv: 22, aux: 2;
+	uint32_t min_iv;
+} mm_ivh_iv_t;
+
+int mm_ivh_compute_hash(const mm_idx_t *mi, int n, const uint64_t *y, uint32_t wing, uint32_t max_ivh_span, uint32_t k, uint64_t *v);
+int mm_ivh_flt_rep(int n, uint64_t *y, uint32_t freq_w, uint32_t freq_b);
+mm_ivh_idx_t *mm_ivh_patch_sketch(void *km, int n, mm128_t *mv, int qlen, uint32_t wing, uint32_t max_ivh_span, uint32_t freq_w, uint32_t freq_b, int skip_bnd);
+mm_seed_t *mm_ivh_collect_matches(void *km, int *n_m, int qlen, const char *qname, int max_occ, int tie_rescue_w, const mm_idx_t *mi, const mm128_v *mv, int64_t *n_a);
+void mm_ivh_comp_hits_pileup(int min_cnt, int rev, int qlen, int cnt, const mm128_t *a, int n, mm128_t *mv, mm_ivh_idx_t *idx, int *n_flt, int *n_tot, int *n_match);
+
+// supplementary functions for all-vs-all with interval hashing (in repava.c)
+int mm_ra_del_full_intl(const mm_idx_t *mi, int max_ovh, int min_intl, int qlen, int n_regs, mm_reg1_t *regs);
+int mm_ra_select_sub_indv(void *km, const mm_idx_t *mi, int max_ovh, float pri_ratio, int best_n, int qlen, int n_regs, mm_reg1_t *regs);
+void mm_ra_est_err(const mm_idx_t *mi, int min_cnt, int qlen, int n_regs, mm_reg1_t *regs, const mm128_t *a, int n, mm128_t *mv, mm_ivh_idx_t *ivh_idx);
+void mm_ra_print_seeds(const mm_idx_t *mi, int n_segs, const int *qlens, int64_t n_a, const mm128_t *a, const char *qname);
 
 #ifdef __cplusplus
 }

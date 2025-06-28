@@ -37,12 +37,14 @@ mm_seed_t *mm_seed_collect_all(void *km, const mm_idx_t *mi, const mm128_v *mv, 
 		const uint64_t *cr;
 		mm_seed_t *q;
 		mm128_t *p = &mv->a[i];
-		uint32_t q_pos = (uint32_t)p->y, q_span = p->x & 0xff;
 		int t;
+		if (p->y>>62) continue;  // mm_ivh_patch_sketch leaves flt flag at bit 62
 		cr = mm_idx_get(mi, p->x>>8, &t);
 		if (t == 0) continue;
 		q = &m[k++];
-		q->q_pos = q_pos, q->q_span = q_span, q->cr = cr, q->n = t, q->seg_id = p->y >> 32;
+		q->n = t, q->q_span = p->x & 0xff, q->cr = cr;
+		q->unused = 0;
+		q->y = p->y;
 		q->is_tandem = q->flt = 0;
 		if (i > 0 && p->x>>8 == mv->a[i - 1].x>>8) q->is_tandem = 1;
 		if (i < mv->n - 1 && p->x>>8 == mv->a[i + 1].x>>8) q->is_tandem = 1;
@@ -67,8 +69,8 @@ void mm_seed_select(int32_t n, mm_seed_t *a, int len, int max_occ, int max_max_o
 	for (i = 0, last0 = -1; i <= n; ++i) {
 		if (i == n || a[i].n <= max_occ) {
 			if (i - last0 > 1) {
-				int32_t ps = last0 < 0? 0 : (uint32_t)a[last0].q_pos>>1;
-				int32_t pe = i == n? len : (uint32_t)a[i].q_pos>>1;
+				int32_t ps = last0 < 0? 0 : (uint32_t)a[last0].y>>1;
+				int32_t pe = i == n? len : (uint32_t)a[i].y>>1;
 				int32_t j, k, st = last0 + 1, en = i;
 				int32_t max_high_occ = (int32_t)((double)(pe - ps) / dist + .499);
 				if (max_high_occ > 0) {
@@ -95,7 +97,7 @@ void mm_seed_select(int32_t n, mm_seed_t *a, int len, int max_occ, int max_max_o
 	}
 }
 
-mm_seed_t *mm_collect_matches(void *km, int *_n_m, int qlen, int max_occ, int max_max_occ, int dist, const mm_idx_t *mi, const mm128_v *mv, int64_t *n_a, int *rep_len, int *n_mini_pos, uint64_t **mini_pos)
+mm_seed_t *mm_collect_matches(void *km, int *_n_m, int qlen, const char *qname, int max_occ, int max_max_occ, int dist, const mm_idx_t *mi, const mm128_v *mv, int64_t *n_a, int *rep_len, int *n_mini_pos, uint64_t **mini_pos)
 {
 	int rep_st = 0, rep_en = 0, n_m, n_m0;
 	size_t i;
@@ -110,19 +112,21 @@ mm_seed_t *mm_collect_matches(void *km, int *_n_m, int qlen, int max_occ, int ma
 			if (m[i].n > max_occ)
 				m[i].flt = 1;
 	}
+
 	for (i = 0, n_m = 0, *rep_len = 0, *n_a = 0; i < n_m0; ++i) {
 		mm_seed_t *q = &m[i];
+		//fprintf(stderr, "X\t%d\t%d\t%d\n", (uint32_t)q->y>>1, q->n, q->flt);
 		if (mm_dbg_flag & MM_DBG_SEED_FREQ)
-			fprintf(stderr, "SF\t%d\t%d\t%d\n", q->q_pos>>1, q->n, q->flt);
+			fprintf(stderr, "SF\t%d\t%d\t%d\n", (uint32_t)q->y>>1, q->n, q->flt);
 		if (q->flt) {
-			int en = (q->q_pos >> 1) + 1, st = en - q->q_span;
+			int en = ((uint32_t)q->y >> 1) + 1, st = en - q->q_span;
 			if (st > rep_en) {
 				*rep_len += rep_en - rep_st;
 				rep_st = st, rep_en = en;
 			} else rep_en = en;
 		} else {
 			*n_a += q->n;
-			(*mini_pos)[(*n_mini_pos)++] = (uint64_t)q->q_span<<32 | q->q_pos>>1;
+			(*mini_pos)[(*n_mini_pos)++] = (uint64_t)q->q_span<<32 | (uint32_t)q->y>>1;
 			m[n_m++] = *q;
 		}
 	}

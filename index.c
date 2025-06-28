@@ -50,6 +50,7 @@ mm_idx_t *mm_idx_init(int w, int k, int b, int flag)
 	mi->w = w, mi->k = k, mi->b = b, mi->flag = flag;
 	mi->B = (mm_idx_bucket_t*)calloc(1<<b, sizeof(mm_idx_bucket_t));
 	if (!(mm_dbg_flag & 1)) mi->km = km_init();
+	mi->max_rep = mi->rep_flt_span = 0;
 	return mi;
 }
 
@@ -264,10 +265,101 @@ static void worker_post(void *g, long i, int tid)
 	kfree(0, b->a.a);
 	b->a.n = b->a.m = 0, b->a.a = 0;
 }
- 
+
 static void mm_idx_post(mm_idx_t *mi, int n_threads)
 {
 	kt_for(n_threads, worker_post, mi, 1<<mi->b);
+}
+
+static void insert_patched(const mm_idx_t *mi, int n, const uint64_t *p, uint64_t *q, uint64_t start_p, uint64_t key, idxhash_t *h, uint64_t base) {
+	size_t i, last_i, j, shift = (EMB_SIG_SHIFT-8) - mi->b + 1; // insert into upper 24bits
+	int n2, absent;
+	uint64_t hash, key2;
+	khint_t k;
+	for (i = last_i = 0; i < n; ++i) {
+		if (i == n-1 || q[i]>>32 != q[i+1]>>32) {
+			hash = q[i]>>32, key2 = key ^ (hash<<shift);
+			for (j = last_i; j < i+1; ++j) q[j] = p[(uint32_t)q[j]];
+			n2 = mm_ivh_flt_rep(i+1-last_i, &q[last_i], mi->rep_flt_span, mi->max_rep);
+			k = kh_put(idx, h, key2, &absent);
+			if (absent || ((kh_key(h, k)&1) == 0 && (uint32_t)kh_val(h, k) > n2)) {
+				kh_val(h, k) = ((start_p+last_i)<<32) | n2;
+			}
+			last_i = i+1;
+		}
+	}
+}
+
+static void worker_patch_ivh(void *g, long i, int tid)
+{
+	(void)tid;
+	// fprintf(stderr, "bkt: %ld\n", i);
+	size_t n_keys, start_p, n;
+	khint_t k;
+	mm_idx_t *mi = (mm_idx_t*)g;
+	mm_idx_bucket_t *b = &mi->B[i];
+	idxhash_t *h = (idxhash_t*)b->h, *h2;
+	uint64_t *p2;
+	if (!h) return;
+
+	p2 = (uint64_t*)malloc(b->n*sizeof(uint64_t));
+	for (k = kh_begin(h), n_keys = 0; k != kh_end(h); ++k) {
+		if (!kh_exist(h, k)) continue;
+		if (kh_key(h, k)&1) ++n_keys;
+		else {
+			start_p = kh_val(h, k)>>32, n = (int)kh_val(h, k);
+			n_keys += mm_ivh_compute_hash(mi, n, &b->p[start_p], mi->wing, mi->max_ivh_span, mi->k, &p2[start_p]);
+		}
+	}
+
+	// create a new hash table
+	h2 = kh_init(idx);
+	kh_resize(idx, h2, n_keys);
+	for (k = kh_begin(h); k != kh_end(h); ++k) {
+		uint64_t key;
+		if (!kh_exist(h, k)) continue;
+		key = kh_key(h, k);
+		if (key&1) {
+			int absent;
+			khint_t k2 = kh_put(idx, h2, key, &absent);
+			kh_key(h2, k2) = key;
+			kh_val(h2, k2) = kh_val(h, k);
+		} else {
+			start_p = kh_val(h, k)>>32, n = (int)kh_val(h, k);
+			insert_patched(mi, n, &b->p[start_p], &p2[start_p], start_p, key, h2, i);
+		}
+	}
+	kh_destroy(idx, h);
+	free(b->p);
+	b->h = h2;
+	b->p = p2;
+}
+
+void mm_idx_patch_ivh(mm_idx_t *mi, int n_threads, uint32_t wing, uint32_t max_ivh_span, uint32_t rep_flt_span, uint32_t max_rep, int skip_bnd)
+{
+	mi->wing = wing;
+	mi->max_ivh_span = max_ivh_span;
+	mi->rep_flt_span = rep_flt_span;
+	mi->max_rep = max_rep;
+	mi->skip_bnd = skip_bnd;
+	kt_for(n_threads, worker_patch_ivh, mi, 1<<mi->b);
+
+	if (mm_verbose >= 3) {
+		size_t i, n, n1, sum;
+		for (i = n = n1 = sum = 0; i < 1U<<mi->b; ++i) {
+			idxhash_t *h = (idxhash_t*)mi->B[i].h;
+			khint_t k;
+			if (!h) continue;
+			n += kh_size(h);
+			for (k = 0; k < kh_end(h); ++k) {
+				if (!kh_exist(h, k)) continue;
+				sum += kh_key(h, k)&1? 1 : (uint32_t)kh_val(h, k);
+				if (kh_key(h, k)&1) ++n1;
+			}
+		}
+		fprintf(stderr, "[M::%s::%.3f*%.2f] embedded %d-%d-intervals. distinct minimizers: %zu (%.2f%% are singletons); average occurrences: %.3lf\n",
+				__func__, realtime() - mm_realtime0, cputime() / (realtime() - mm_realtime0), wing, wing, n, 100.0*n1/n, (double)sum / n);
+	}
 }
 
 /******************

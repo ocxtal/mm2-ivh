@@ -88,6 +88,16 @@ static ko_longopt_t long_options[] = {
 	{ "mask-level",     ko_required_argument, 'M' },
 	{ "min-dp-score",   ko_required_argument, 's' },
 	{ "sam",            ko_no_argument,       'a' },
+	{ "max-rep",        ko_required_argument, 400 },
+	{ "rep-flt-span",   ko_required_argument, 401 },
+	{ "tie-rescue-window",ko_required_argument, 402 },
+	{ "improved-ava",   ko_required_argument, 403 },
+	{ "max-overhang",   ko_required_argument, 404 },
+	{ "min-internal",   ko_required_argument, 405 },
+	{ "wing",           ko_required_argument, 407 },
+	{ "max-ivh-span",   ko_required_argument, 408 },
+	{ "disable-edge-ivh",ko_no_argument,      411 },
+	{ "print-seeds2",   ko_no_argument,       414 },
 	{ 0, 0, 0 }
 };
 
@@ -127,7 +137,7 @@ int main(int argc, char *argv[])
 	ketopt_t o = KETOPT_INIT;
 	mm_mapopt_t opt;
 	mm_idxopt_t ipt;
-	int i, c, n_threads = 3, n_parts, old_best_n = -1;
+	int i, c, n_threads = 3, n_parts, old_best_n = -1, old_mid_occ = 0;
 	char *fnw = 0, *rg = 0, *junc_bed = 0, *s, *alt_list = 0;
 	FILE *fp_help = stderr;
 	mm_idx_reader_t *idx_rdr;
@@ -208,6 +218,7 @@ int main(int argc, char *argv[])
 		else if (c == 303) mm_dbg_flag |= MM_DBG_NO_KALLOC; // --no-kalloc
 		else if (c == 304) mm_dbg_flag |= MM_DBG_PRINT_QNAME; // --print-qname
 		else if (c == 306) mm_dbg_flag |= MM_DBG_PRINT_QNAME | MM_DBG_PRINT_SEED, n_threads = 1; // --print-seed
+		else if (c == 414) mm_dbg_flag |= MM_DBG_PRINT_SEED2;
 		else if (c == 307) opt.max_chain_skip = atoi(o.arg); // --max-chain-skip
 		else if (c == 339) opt.max_chain_iter = atoi(o.arg); // --max-chain-iter
 		else if (c == 308) opt.min_ksw_len = atoi(o.arg); // --min-dp-len
@@ -314,18 +325,38 @@ int main(int argc, char *argv[])
 			opt.e = opt.e2 = strtol(o.arg, &s, 10);
 			if (*s == ',') opt.e2 = strtol(s + 1, &s, 10);
 		}
+		else if (c == 400) opt.max_rep = strtol(o.arg, &s, 10);         // --max-rep
+		else if (c == 401) opt.rep_flt_span = strtol(o.arg, &s, 10);    // --rep-flt-span
+		else if (c == 402) opt.tie_rescue_w = strtol(o.arg, &s, 10);    // --tie-rescue-window
+		else if (c == 403) yes_or_no(&opt, MM_F_IMPROVED_AVA, o.longidx, o.arg, 1);
+		else if (c == 404) opt.max_overhang = strtol(o.arg, &s, 10);
+		else if (c == 405) opt.min_internal = strtol(o.arg, &s, 10);
+		else if (c == 407) opt.wing = strtol(o.arg, &s, 10);
+		else if (c == 408) opt.max_ivh_span = strtol(o.arg, &s, 10);
+		else if (c == 411) opt.drop_bnd_ivh = 1;
 	}
 	if ((opt.flag & MM_F_SPLICE) && (opt.flag & MM_F_FRAG_MODE)) {
 		fprintf(stderr, "[ERROR]\033[1;31m --splice and --frag should not be specified at the same time.\033[0m\n");
+		return 1;
+	}
+	if ((opt.flag & MM_F_IMPROVED_AVA) && (opt.flag & MM_F_FRAG_MODE)) {
+		fprintf(stderr, "[ERROR]\033[1;31m --improved-ava and --frag should not be specified at the same time.\033[0m\n");
 		return 1;
 	}
 	if (!fnw && !(opt.flag&MM_F_CIGAR))
 		ipt.flag |= MM_I_NO_SEQ;
 	if (mm_check_opt(&ipt, &opt) < 0)
 		return 1;
-	if (opt.best_n == 0) {
-		fprintf(stderr, "[WARNING]\033[1;31m changed '-N 0' to '-N %d --secondary=no'.\033[0m\n", old_best_n);
-		opt.best_n = old_best_n, opt.flag |= MM_F_NO_PRINT_2ND;
+	if (opt.flag&MM_F_IMPROVED_AVA) {
+		if (opt.flag&MM_F_ALL_CHAINS) {
+			fprintf(stderr, "[WARNING]\033[1;31m --improved-ava turns -P off.\033[0m\n");
+			opt.flag &= ~(uint64_t)MM_F_ALL_CHAINS;
+		}
+	} else {
+		if (opt.best_n == 0) {
+			fprintf(stderr, "[WARNING]\033[1;31m changed '-N 0' to '-N %d --secondary=no'.\033[0m\n", old_best_n);
+			opt.best_n = old_best_n, opt.flag |= MM_F_NO_PRINT_2ND;
+		}
 	}
 
 	if (argc == o.ind || fp_help == stdout) {
@@ -337,6 +368,15 @@ int main(int argc, char *argv[])
 		fprintf(fp_help, "    -w INT       minimizer window size [%d]\n", ipt.w);
 		fprintf(fp_help, "    -I NUM       split index for every ~NUM input bases [8G]\n");
 		fprintf(fp_help, "    -d FILE      dump index to FILE []\n");
+		fprintf(fp_help, "  Interval hashing:\n");
+		fprintf(fp_help, "    --wing=INT             wing size for interval hashing [%d]\n", opt.wing);
+		fprintf(fp_help, "    --max-ivh-span=INT     max isolation of identical minimizers for splitting interval hashing contexts [%d]\n", opt.max_ivh_span);
+		fprintf(fp_help, "    --rep-flt-span=INT     span (window size) in bp for locally too-frequent minimizer filtering [%d]\n", opt.rep_flt_span);
+		fprintf(fp_help, "    --max-rep=INT          max occurrence of minimizers in rep-flt-window [%d]\n", opt.max_rep);
+		fprintf(fp_help, "    --improved-ava=yes/no  (experimental) enables improved all-vs-all postprocess\n");
+		fprintf(fp_help, "    --max-overhang=INT     (experimental) max overhang length in bp for improved-ava [%d]\n", opt.max_overhang);
+		fprintf(fp_help, "    --min-internal=INT     (experimental) minimal internal length in bp for improved-ava [%d]\n", opt.min_internal);
+		fprintf(fp_help, "    --disable-edge-ivh     (experimental) disables interval hashing on the edges of the target sequences to reduce spurious seed matches\n");
 		fprintf(fp_help, "  Mapping:\n");
 		fprintf(fp_help, "    -f FLOAT     filter out top FLOAT fraction of repetitive minimizers [%g]\n", opt.mid_occ_frac);
 		fprintf(fp_help, "    -g NUM       stop chain enlongation if there are no minimizers in INT-bp [%d]\n", opt.max_gap);
@@ -377,6 +417,10 @@ int main(int argc, char *argv[])
 		fprintf(fp_help, "    -x STR       preset (always applied before other options; see minimap2.1 for details) []\n");
 		fprintf(fp_help, "                 - lr:hq - accurate long reads (error rate <1%%) against a reference genome\n");
 		fprintf(fp_help, "                 - splice/splice:hq - spliced alignment for long reads/accurate long reads\n");
+		fprintf(fp_help, "                 - map-pb/map-ont/map-iclr-prerender/map-iclr - PacBio/Nanopore/ICLR vs reference mapping\n");
+		fprintf(fp_help, "                 - map-hifi - PacBio HiFi reads vs reference mapping\n");
+		fprintf(fp_help, "                 - ava-pb/ava-ont - PacBio/Nanopore read overlap\n");
+		fprintf(fp_help, "                 - ivh-ava-ont - Nanopore read overlap using interval hashing\n");
 		fprintf(fp_help, "                 - asm5/asm10/asm20 - asm-to-ref mapping, for ~0.1/1/5%% sequence divergence\n");
 		fprintf(fp_help, "                 - sr - short reads against a reference\n");
 		fprintf(fp_help, "                 - map-pb/map-hifi/map-ont/map-iclr - CLR/HiFi/Nanopore/ICLR vs reference mapping\n");
@@ -399,7 +443,7 @@ int main(int argc, char *argv[])
 		mm_idx_reader_close(idx_rdr);
 		return 1;
 	}
-	if (opt.best_n == 0 && (opt.flag&MM_F_CIGAR) && mm_verbose >= 2)
+	if (opt.best_n == 0 && !(opt.flag&MM_F_IMPROVED_AVA) && (opt.flag&MM_F_CIGAR) && mm_verbose >= 2)
 		fprintf(stderr, "[WARNING]\033[1;31m `-N 0' reduces alignment accuracy. Please use --secondary=no to suppress secondary alignments.\033[0m\n");
 	while ((mi = mm_idx_reader_read(idx_rdr, n_threads)) != 0) {
 		int ret;
@@ -429,13 +473,22 @@ int main(int argc, char *argv[])
 		if (mm_verbose >= 3)
 			fprintf(stderr, "[M::%s::%.3f*%.2f] loaded/built the index for %d target sequence(s)\n",
 					__func__, realtime() - mm_realtime0, cputime() / (realtime() - mm_realtime0), mi->n_seq);
-		if (argc != o.ind + 1) mm_mapopt_update(&opt, mi);
+		if (argc != o.ind + 1) {
+			old_mid_occ = opt.mid_occ;
+			mm_mapopt_update(&opt, mi);
+		}
 		if (mm_verbose >= 3) mm_idx_stat(mi);
 		if (junc_bed) mm_idx_bed_read(mi, junc_bed, 1);
 		if (alt_list) mm_idx_alt_read(mi, alt_list);
 		if (argc - (o.ind + 1) == 0) {
 			mm_idx_destroy(mi);
 			continue; // no query files
+		}
+		if (opt.wing > 0) {
+			if (opt.max_ivh_span == 0) opt.max_ivh_span = 1<<31;
+			opt.mid_occ = old_mid_occ;  // clear it to trigger recalc
+			mm_idx_patch_ivh(mi, n_threads, opt.wing, opt.max_ivh_span, opt.rep_flt_span, opt.max_rep, opt.drop_bnd_ivh);
+			mm_mapopt_update(&opt, mi);
 		}
 		ret = 0;
 		if (!(opt.flag & MM_F_FRAG_MODE)) {

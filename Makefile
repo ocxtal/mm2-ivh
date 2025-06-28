@@ -3,9 +3,10 @@ CPPFLAGS=	-DHAVE_KALLOC
 INCLUDES=
 OBJS=		kthread.o kalloc.o misc.o bseq.o sketch.o sdust.o options.o index.o \
 			lchain.o align.o hit.o seed.o map.o format.o pe.o esterr.o splitidx.o \
-			ksw2_ll_sse.o
-PROG=		minimap2
-PROG_EXTRA=	sdust minimap2-lite
+			ksw2_ll_sse.o \
+			repava.o ivh.o
+PROG=		mm2-ivh
+PROG_EXTRA=	sdust mm2-ivh-lite
 LIBS=		-lm -lz -lpthread
 
 ifneq ($(aarch64),)
@@ -48,10 +49,10 @@ all:$(PROG)
 
 extra:all $(PROG_EXTRA)
 
-minimap2:main.o libminimap2.a
+mm2-ivh:main.o libminimap2.a
 		$(CC) $(CFLAGS) main.o -o $@ -L. -lminimap2 $(LIBS)
 
-minimap2-lite:example.o libminimap2.a
+mm2-ivh-lite:example.o libminimap2.a
 		$(CC) $(CFLAGS) $< -o $@ -L. -lminimap2 $(LIBS)
 
 libminimap2.a:$(OBJS)

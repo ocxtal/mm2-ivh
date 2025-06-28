@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 
-#define MM_VERSION "2.28-r1209"
+#define MM_VERSION "2.28-r1209-interval-hashing"
 
 #define MM_F_NO_DIAG       (0x001LL) // no exact diagonal hit
 #define MM_F_NO_DUAL       (0x002LL) // skip pairs where query name is lexicographically larger than target name
@@ -46,6 +46,9 @@
 #define MM_F_SECONDARY_SEQ (0x1000000000LL)	//output SEQ field for seqondary alignments using hard clipping
 #define MM_F_OUT_DS        (0x2000000000LL)
 
+// mm2-ivh flags
+#define MM_F_IMPROVED_AVA  (0x1000000000000LL) // improved postproces for all-vs-all
+
 #define MM_I_HPC          0x1
 #define MM_I_NO_SEQ       0x2
 #define MM_I_NO_NAME      0x4
@@ -74,6 +77,9 @@ extern "C" {
 typedef struct { uint64_t x, y; } mm128_t;
 typedef struct { size_t n, m; mm128_t *a; } mm128_v;
 
+typedef struct { uint32_t x, y; } mm64_t;
+typedef struct { size_t n, m; mm64_t *a; } mm64_v;
+
 // minimap2 index
 typedef struct {
 	char *name;      // name of the db sequence
@@ -92,6 +98,11 @@ typedef struct {
 	struct mm_idx_bucket_s *B; // index (hidden)
 	struct mm_idx_intv_s *I;   // intervals (hidden)
 	void *km, *h;
+	uint32_t rep_flt_span, max_rep;
+	uint16_t wing, skip_bnd;
+	uint32_t max_ivh_span;
+
+	void *c;
 } mm_idx_t;
 
 // minimap2 alignment
@@ -115,9 +126,11 @@ typedef struct {
 	int32_t mlen, blen;     // seeded exact match length; seeded alignment block length
 	int32_t n_sub;          // number of suboptimal mappings
 	int32_t score0;         // initial chaining score (before chain merging/spliting)
-	uint32_t mapq:8, split:2, rev:1, inv:1, sam_pri:1, proper_frag:1, pe_thru:1, seg_split:1, seg_id:8, split_inv:1, is_alt:1, strand_retained:1, dummy:5;
+	uint32_t mapq:8, split:2, rev:1, inv:1, sam_pri:1, proper_frag:1, pe_thru:1, seg_split:1, seg_id:8, split_inv:1, is_alt:1, strand_retained:1, repava_pri:1, dummy:4;
 	uint32_t hash;
 	float div;
+	float frac_flt, frac_hit;
+	uint32_t aux;
 	mm_extra_t *p;
 } mm_reg1_t;
 
@@ -181,6 +194,11 @@ typedef struct {
 	int64_t cap_kalloc;
 
 	const char *split_prefix;
+
+	int max_overhang, min_internal;       // overlap selection
+	uint32_t wing, max_ivh_span;          // interval hashing wing and max_span
+	uint32_t rep_flt_span, max_rep, tie_rescue_w;     // seed filter: window for homopolimer (HP) seeds, max HP seeds in a window (in bp), window for high-occ seeds
+	int drop_bnd_ivh;                     // suppress interval hashing for target seqs when it's too close to the ends (to reduce false match)
 } mm_mapopt_t;
 
 // index reader
@@ -321,6 +339,18 @@ mm_idx_t *mm_idx_str(int w, int k, int is_hpc, int bucket_bits, int n, const cha
  * @param mi         minimap2 index
  */
 void mm_idx_stat(const mm_idx_t *idx);
+
+/**
+ * Convert minimizers in the index to frequency-augmented one
+ *
+ * @param mi         minimap2 index
+ * @param n_threads  number of threads
+ * @param wing       #seed intervals leftward and rightward to hash
+ * @param max_ivh_span  max interval to take into account when hashing
+ * @param rep_flt_span       window size for homopolimer seed removal
+ * @param max_rep filter out homopolimer seeds over this count
+ */
+void mm_idx_patch_ivh(mm_idx_t *idx, int n_threads, uint32_t wing, uint32_t max_ivh_span, uint32_t rep_flt_span, uint32_t max_rep, int skip_bnd);
 
 /**
  * Destroy/deallocate an index
