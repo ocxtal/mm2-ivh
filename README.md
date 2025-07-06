@@ -90,4 +90,4 @@ Interval hashing is not effective for reads with high error rates. It likely req
 
 ## Licenses
 
-The code is licensed under the [MIT License](./LICENSE).
+The code is licensed under the [MIT License](./LICENSE.txt), following the original minimap2 license.
