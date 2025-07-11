@@ -84,6 +84,20 @@ The following options are experimental:
 * `--min-internal`: Does not report internal matches (both reads have overhangs on both sides) shorter than the specified length. Considered only when `--improved-ava` is enabled.
 * `--disable-edge-ivh`: Disables interval hashing on the query side, enabling it only on the target side. This prevents spurious matches occurring at the read ends. Disabled by default and in the `ivh-ava-ont-ul` preset.
 
+## Citation
+
+Please cite the following preprint if you use mm2-ivh with interval hashing enabled:
+
+* Hajime Suzuki, Masahiro Sugawa, Yoshitaka Sakamoto, and Yuichi Shiraishi. "mm2-ivh: simple and precise overlap detection in alpha satellite HORs with interval hashing." *bioRxiv*, 2025.
+
+Otherwise, please cite the original minimap2 paper:
+
+* Heng Li. "Minimap2: pairwise alignment for nucleotide sequences." *Bioinformatics*, 2018.
+
+## Reproducing the experiment in the preprint
+
+Scripts to reproduce the experiments in our preprint are located in the `scripts/` directory. Running `run_benchmark.sh` will download the data, build the tools, extract centromeric reads, and perform assembly. Each step is encapsulated in its own script, allowing you to run specific steps independently. For details, see the contents of `run_benchmark.sh`. Note that `run_benchmark.sh` creates large files in the current directory, so be cautious about where you run it.
+
 ## Limitations
 
 Interval hashing is not effective for reads with high error rates. It likely requires a sequence identity of at least 99.5% to function effectively. This is due to the requirement that matches via interval hashing must retain all occurrences of multiple k-mers (for example, 7 occurrences when $W = 3$).
