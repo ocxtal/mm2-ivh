@@ -4,6 +4,7 @@ set -eu -o pipefail
 DIR=""
 RERUN=false
 BINNING_BED=""
+REGION_TO_BIN=""
 BED_GREP_PATTERN="^hor_"
 REF=""
 READS=""
@@ -23,11 +24,12 @@ MIN_MATCH_FRAC="0.2"
 THREADS=4
 TIMEOUT="60m"
 
-while getopts "d:Ra:P:r:q:p:m:b:B:H:e:E:J:M:t:v" opt; do
+while getopts "d:Ra:G:P:r:q:p:m:b:B:H:e:E:J:M:t:v" opt; do
     case "${opt}" in
         d) DIR="${OPTARG}" ;;
         R) RERUN=true ;;
         a) BINNING_BED="${OPTARG}" ;;
+        G) REGION_TO_BIN="${OPTARG}" ;;
         P) BED_GREP_PATTERN="${OPTARG}" ;;
         r) REF="${OPTARG}" ;;
         q) READS="${OPTARG}" ;;
@@ -35,7 +37,7 @@ while getopts "d:Ra:P:r:q:p:m:b:B:H:e:E:J:M:t:v" opt; do
         m) MODE="${OPTARG}" ;;
         b) MINIMAP2="${OPTARG}" ;;
         B) MINIASM="${OPTARG}" ;;
-        B) HIFIASM="${OPTARG}" ;;
+        H) HIFIASM="${OPTARG}" ;;
         e) AVA_OPTS="${OPTARG}" ;;
         E) ASM_OPTS="${OPTARG}" ;;
         F) MIN_MATCH_FRAC="${OPTARG}" ;;
@@ -127,6 +129,12 @@ fi
 [[ ! "${READS}" =~ .+\.(fq|fastq|fq.gz|fastq.gz) ]] && err_exit "-q ${READS} must be in the FASTQ format."
 READS=$(realpath "${READS}")
 
+if [[ -n "${REGION_TO_BIN}" ]]; then
+    [[ ! -f "${REGION_TO_BIN}" ]]                   && err_exit "-G ${REGION_TO_BIN} does not exist or is not a regular file."
+    [[ ! "${REGION_TO_BIN}" =~ .+\.txt$ ]]          && err_exit "-G ${REGION_TO_BIN} must be in the text (tab-separated) format."
+    REGION_TO_BIN=$(realpath "${REGION_TO_BIN}")
+fi
+
 # check mode
 case "${MODE}" in
     minimap2|hifiasm) ;;
@@ -170,8 +178,8 @@ log "finished filtering annotations"
 
 # create dirs for each regions
 log "creating directories for each regions"
-cat "annot.flt.merged.margined.bed" | awk '{ printf("%s_%s_%s\n", $1, $2, $3); }' | xargs mkdir -p
-cat "annot.flt.merged.margined.bed" | awk '{ file=sprintf("%s_%s_%s/region.bed", $1, $2, $3); print $0 > file }'
+mkdir -p "regions"
+cat "annot.flt.merged.margined.bed" | awk '{ file=sprintf("regions/%s_%s_%s.bed", $1, $2, $3); print $0 > file }'
 
 # create paf if it doesn't exist
 if [[ ! -e "${PAF}" ]]; then
@@ -185,22 +193,37 @@ else
     log "mapping already exists: ${PAF}"
 fi
 
-# build read name -> region map
+# create region -> bin map
+# (region name joined by '_' in the first column, and bin name in the second column. tab-separated)
+if [[ ! -e "${REGION_TO_BIN}" ]]; then
+    log "generating region-to-bin map"
+    REGION_TO_BIN="region_to_bin.txt"
+    cat "annot.flt.merged.margined.bed" | awk '{ region=sprintf("%s_%s_%s", $1, $2, $3); printf("%s\t%s\n", region, region); }' > "${REGION_TO_BIN}"
+else
+    log "region-to-bin map already exists: ${REGION_TO_BIN}"
+fi
+
+log "creating directories for bins"
+cat "${REGION_TO_BIN}" | cut -f2 | sort -u | xargs mkdir -p
+cat "${REGION_TO_BIN}" | cut -f2 | sort -u | ls
+
+# build read name -> bin map
 if [[ ! -e "names.sorted.joined.txt" ]]; then
-    log "generating read-to-region map"
+    log "generating read-to-bin map"
     cat "${PAF}" | grep "tp:A:P" | awk -vm="${MIN_SPAN}" '$4 - $3 > m' > "filtered.paf"
-    for r in $(ls ./*/region.bed); do
-        TAG=$(basename $(dirname "$r"))
+    for r in $(ls regions/*.bed); do
+        TAG=$(basename "${r%.bed}")
         CHR=$(cat "$r" | cut -f1)
         BEG=$(cat "$r" | cut -f2)
         END=$(cat "$r" | cut -f3)
-        cat "filtered.paf" | awk -vt="${TAG}" -vc="${CHR}" -vb="${BEG}" -ve="${END}" '{ if ($6 == c && $8 < e && $9 >= b) printf "%s\t%s\n", t, $1; }'
+        BIN=$(cat "${REGION_TO_BIN}" | grep "${TAG}" | cut -f2)
+        cat "filtered.paf" | awk -vc="${CHR}" -vb="${BEG}" -ve="${END}" -vt="${BIN}" '{ if ($6 == c && $8 < e && $9 >= b) printf "%s\t%s\n", t, $1; }'
     done > "names.txt"
 
     cat "names.txt" | sort -k2,2 -k1,1 | uniq | uniq -f1 --group=append \
         | awk '{ if ($0 == "") { printf "%s%s\n", n, a; n=""; a=""; } else { n=$2; a=sprintf("%s\t%s", a, $1); } }' > "names.sorted.joined.txt"
 else
-    log "read-to-region map already exists"
+    log "read-to-bin map already exists"
 fi
 
 # sort the map to the order the reads are stored in the input
@@ -225,15 +248,15 @@ else
 fi
 
 # all-vs-all -> asm
-if ! [[ -e "contigs.fa" ]]; then
-    for r in $(cat "annot.flt.merged.margined.bed" | awk '{ printf("%s_%s_%s\n", $1, $2, $3); }'); do
+if [[ ! -e "contigs.fa" ]]; then
+    for r in $(cat "${REGION_TO_BIN}" | cut -f2 | sort -u); do
         log "running assembler on ${r}"
         run_asm "${r}/reads.fq" "${r}/asm.gfa"
         cat "${r}/asm.gfa" | (grep "^S" || true) | awk -vr="${r}" '{ printf ">%s_%s\n%s\n", r, $2, $3; }' > "${r}/contigs.fa"
     done
     log "finished assembly"
 
-    for r in $(cat "annot.flt.merged.margined.bed" | awk '{ printf("%s_%s_%s\n", $1, $2, $3); }'); do
+    for r in $(cat "${REGION_TO_BIN}" | cut -f2 | sort -u); do
         cat "${r}/contigs.fa"
     done > "contigs.fa"
 else
