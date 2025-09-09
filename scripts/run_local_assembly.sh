@@ -45,7 +45,7 @@ while getopts "d:Ra:G:P:r:q:p:m:b:B:H:e:E:J:M:t:v" opt; do
         M) MARGIN="${OPTARG}" ;;
         t) THREADS="${OPTARG}" ;;
         T) TIMEOUT="${TIMEOUT}" ;;
-        v) set -x
+        v) set -x ;;
     esac
 done
 
@@ -86,7 +86,7 @@ function run_minimap2() {
     fi
     if [[ ! -e "${2%.gfa}.asm.done" ]]; then
         log "start miniasm" 2>>"${2%.gfa}.log"
-        run_command ${MINIASM} -f "$1" ${ASM_OPTS} <(cat "${2%.gfa}.paf" | awk -vTH="${MIN_MATCH_FRAC}" '$10 / $11 > TH') "${2%.gfa}.paf"   2>>"${2%.gfa}.log" > "$2"
+        run_command ${MINIASM} -f "$1" ${ASM_OPTS} <(cat "${2%.gfa}.paf" | awk -vTH="${MIN_MATCH_FRAC}" '$10 / $11 > TH')                   2>>"${2%.gfa}.log" > "$2"
         log "finished miniasm" 2>>"${2%.gfa}.log"
         touch "${2%.gfa}.asm.done"
     fi
