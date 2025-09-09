@@ -63,8 +63,9 @@ void mm_ra_est_err(const mm_idx_t *mi, int min_cnt, int qlen, int n_regs, mm_reg
 
 	for (i = 0; i < n_regs; ++i) {
 		mm_reg1_t *r = &regs[i];
-		int32_t st, en, n_match, n_flt, n_tot, l_ref; //, raw = 0;
+		int32_t st, en, n_match, n_raw_match, n_flt, n_tot, l_ref; //, raw = 0;
 		r->div = -1.0f;
+		r->raw_div = -1.0f;
 		if (r->cnt == 0) continue;
 		r->aux = st = en = get_mini_idx(qlen, r->rev? &a[r->as + r->cnt - 1] : &a[r->as], n, mv);
 		if (st < 0) {
@@ -73,13 +74,14 @@ void mm_ra_est_err(const mm_idx_t *mi, int min_cnt, int qlen, int n_regs, mm_reg
 			continue;
 		}
 		l_ref = mi->seq[r->rid].len;
-		mm_ivh_comp_hits_pileup(min_cnt, r->rev, qlen, r->cnt, &a[r->as], n, mv, ivh_idx, &n_flt, &n_tot, &n_match);
+		mm_ivh_comp_hits_pileup(min_cnt, r->rev, qlen, r->cnt, &a[r->as], n, mv, ivh_idx, &n_flt, &n_tot, &n_match, &n_raw_match);
 		r->frac_flt = (double)n_flt / (n_flt + n_tot);
 		r->frac_hit = (double)n_match / (n_flt + n_tot);
 
 		if (r->qs > avg_k && r->rs > avg_k) ++n_tot;
 		if (qlen - r->qs > avg_k && l_ref - r->re > avg_k) ++n_tot;
 		r->div = n_match >= n_tot? 0.0f : (float)(1.0 - pow((double)n_match / n_tot, 1.0 / avg_k));
+		r->raw_div = n_raw_match >= n_tot? 0.0f : (float)(1.0 - pow((double)n_raw_match / n_tot, 1.0 / avg_k));
 	}
 }
 

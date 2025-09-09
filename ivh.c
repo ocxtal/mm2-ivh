@@ -331,16 +331,16 @@ static int get_mini_idx(int qlen, const mm128_t *a, int32_t n, const mm128_t *mv
 	return -1;
 }
 
-void mm_ivh_comp_hits_pileup(int min_cnt, int rev, int qlen, int cnt, const mm128_t *a, int n, mm128_t *mv, mm_ivh_idx_t *idx, int *n_flt, int *n_tot, int *n_match) {
+void mm_ivh_comp_hits_pileup(int min_cnt, int rev, int qlen, int cnt, const mm128_t *a, int n, mm128_t *mv, mm_ivh_idx_t *idx, int *n_flt, int *n_tot, int *n_match, int *n_raw_match) {
 	// treat minimizers hit if it's embedded in another minimizer as its wing pattern and it hits
 	int i, j, st, en;
 	st = get_mini_idx(qlen, rev? &a[cnt - 1] : a, n, mv);
 
 	// mark hits
-	for (i = st, j = 0; i < n && j < cnt; ++i) {
+	for (i = st, j = 0, *n_raw_match = 0; i < n && j < cnt; ++i) {
 		int32_t q;
 		q = get_for_qpos(qlen, rev? &a[cnt - 1 - j] : &a[j]);
-		if (q == (int32_t)mv[i].y>>1) mv[i].y |= 1ULL<<63, ++j;
+		if (q == (int32_t)mv[i].y>>1) mv[i].y |= 1ULL<<63, ++j, *n_raw_match += 1;
 	}
 	en = i;
 

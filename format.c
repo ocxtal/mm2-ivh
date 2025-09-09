@@ -362,6 +362,12 @@ static inline void write_tags(kstring_t *s, const mm_reg1_t *r)
 		if (r->div == 0.0f) buf[0] = '0', buf[1] = 0;
 		else snprintf(buf, 16, "%.4f", r->div);
 		mm_sprintf_lite(s, "\tdv:f:%s", buf);
+
+		if (r->raw_div >= 0.0f && r->raw_div <= 1.0f) {
+			if (r->raw_div == 0.0f) buf[0] = '0', buf[1] = 0;
+			else snprintf(buf, 16, "%.4f", r->raw_div);
+			mm_sprintf_lite(s, "\trd:f:%s", buf);
+		}
 	}
 	// interval-hash-augmented minimizer all-vs-all
 	if (r->frac_flt > 0.0 || r->frac_hit > 0.0) {

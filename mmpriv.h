@@ -144,7 +144,7 @@ int mm_ivh_compute_hash(const mm_idx_t *mi, int n, const uint64_t *y, uint32_t w
 int mm_ivh_flt_rep(int n, uint64_t *y, uint32_t freq_w, uint32_t freq_b);
 mm_ivh_idx_t *mm_ivh_patch_sketch(void *km, int n, mm128_t *mv, int qlen, uint32_t wing, uint32_t max_ivh_span, uint32_t freq_w, uint32_t freq_b, int skip_bnd);
 mm_seed_t *mm_ivh_collect_matches(void *km, int *n_m, int qlen, const char *qname, int max_occ, int tie_rescue_w, const mm_idx_t *mi, const mm128_v *mv, int64_t *n_a);
-void mm_ivh_comp_hits_pileup(int min_cnt, int rev, int qlen, int cnt, const mm128_t *a, int n, mm128_t *mv, mm_ivh_idx_t *idx, int *n_flt, int *n_tot, int *n_match);
+void mm_ivh_comp_hits_pileup(int min_cnt, int rev, int qlen, int cnt, const mm128_t *a, int n, mm128_t *mv, mm_ivh_idx_t *idx, int *n_flt, int *n_tot, int *n_match, int *n_raw_match);
 
 // supplementary functions for all-vs-all with interval hashing (in repava.c)
 int mm_ra_del_full_intl(const mm_idx_t *mi, int max_ovh, int min_intl, int qlen, int n_regs, mm_reg1_t *regs);
