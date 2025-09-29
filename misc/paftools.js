@@ -1,6 +1,6 @@
 #!/usr/bin/env k8
 
-var paftools_version = '2.28-r1209';
+var paftools_version = '2.28-r1209-mm2-ivh-preliminary-experiment';
 
 /*****************************
  ***** Library functions *****
@@ -2879,18 +2879,22 @@ function paf_exoneval(args) // adapted from paf_junceval()
 // evaluate overlap sensitivity
 function paf_ov_eval(args)
 {
-	var c, min_ovlp = 2000, min_frac = 0.95, min_mapq = 10;
-	while ((c = getopt(args, "q:l:f:")) != null) {
+	var c, min_ovlp = 2000, min_frac_ref = 0.95, min_frac_ovlp = 0.8, min_mapq = 10, max_diff = 150;
+	while ((c = getopt(args, "q:l:f:F:m:")) != null) {
 		if (c == 'q') min_mapq = parseInt(getopt.arg);
 		else if (c == 'l') min_ovlp = parseInt(getopt.arg);
-		else if (c == 'f') min_frac = parseFloat(getopt.arg);
+		else if (c == 'f') min_frac_ref = parseFloat(getopt.arg);
+		else if (c == 'F') min_frac_ovlp = parseFloat(getopt.arg);
+		else if (c == 'm') max_diff = parseInt(getopt.arg);
 	}
 	if (args.length - getopt.ind < 2) {
 		print("Usage: sort -k6,6 -k8,8n to-ref.paf | paftools.js ov-eval [options] - <ovlp.paf>");
 		print("Options:");
 		print("  -l INT     min overlap length [2000]");
 		print("  -q INT     min mapping quality [10]");
-		print("  -f FLOAT   min fraction of mapped length [0.95]");
+		print("  -f FLOAT   min fraction of mapped read length for to-ref.paf [0.95]");
+		print("  -F FLOAT   min fraction of overlap length for ovlp.paf [0.8]");
+		print("  -m INT     max tolerance of the inferred vs. observed overlap overhang [150]");
 		exit(1);
 	}
 
@@ -2909,7 +2913,7 @@ function paf_ov_eval(args)
 			t[i] = parseInt(t[i]);
 		for (var i = 6; i <= 8; ++i)
 			t[i] = parseInt(t[i]);
-		if (t[3] - t[2] < min_ovlp || t[8] - t[7] < min_ovlp || (t[3] - t[2]) / t[1] < min_frac)
+		if (t[3] - t[2] < min_ovlp || t[8] - t[7] < min_ovlp || (t[3] - t[2]) / t[1] < min_frac_ref)
 			continue;
 		var ctg = t[5], st = t[7], en = t[8];
 		while (a.length > 0) {
@@ -2922,30 +2926,68 @@ function paf_ov_eval(args)
 			var len = (en > a[j][2]? a[j][2] : en) - st;
 			if (len >= min_ovlp) {
 				var key = a[j][3] < t[0]? a[j][3] + "\t" + t[0] : t[0] + "\t" + a[j][3];
-				h[key] = len;
+				var st_ovh = st - a[j][1], en_ovh = en - a[j][2], dir = a[j][4];
+				if (t[0] < a[j][3]) st_ovh = -st_ovh, en_ovh = -en_ovh, dir = t[4];
+				if (dir == '-') { var tmp = st_ovh; st_ovh = -en_ovh; en_ovh = -tmp; }
+				h[key] = [len, st_ovh, en_ovh, t[4] == a[j][4]? '+' : '-', 0, 0];
 			}
 		}
-		a.push([ctg, st, en, t[0]]);
+		a.push([ctg, st, en, t[0], t[4]]);
 	}
 	file.close();
 
 	file = new File(args[getopt.ind + 1]);
+	var n_ovlp = 0, n_pass_ovlp = 0, n_pass_true_ovlp = 0;
 	while (file.readline(buf) >= 0) {
 		var t = buf.toString().split("\t");
 		var key = t[0] < t[5]? t[0] + "\t" + t[5] : t[5] + "\t" + t[0];
-		if (h[key] > 0) h[key] = -h[key];
+		var st1 = parseInt(t[2]), en1 = parseInt(t[3]), len1 = parseInt(t[1]);
+		var st2 = parseInt(t[7]), en2 = parseInt(t[8]), len2 = parseInt(t[6]);
+		var len = en1 - st1 < en2 - st2? en1 - st1 : en2 - st2;
+		// skip if the overlap is too short; even if it's a true overlap, as it's not recorded in h
+		// precision is calculated based on the remaining overlaps so that true but too short overlaps do not affect the estimation
+		if (len >= min_ovlp * min_frac_ovlp) {
+			if (h[key]) {
+				var ex_len = h[key][0] < 0? -h[key][0] : h[key][0];
+				var st_ovh = t[4] == '+'? st1 - st2 : (st1 - (len2 - en2));
+				var en_ovh = t[4] == '+'? (len2 - en2) - (len1 - en1) : st2 - (len1 - en1);
+				if (t[5] <= t[0]) st_ovh = -st_ovh, en_ovh = -en_ovh;
+				if (len >= ex_len * min_frac_ovlp) {
+					if (h[key][4] < len) h[key][4] = len;
+					if (h[key][0] > 0 && h[key][3] == t[4]
+						&& h[key][1] + max_diff >= st_ovh && h[key][1] - max_diff <= st_ovh
+						&& h[key][2] + max_diff >= en_ovh && h[key][2] - max_diff <= en_ovh) {
+						h[key][0] = -h[key][0];
+						h[key][5] = len;
+						++n_pass_true_ovlp;
+					}
+				}
+			}
+			++n_pass_ovlp;
+		}
+		++n_ovlp;
 	}
 	file.close();
 	buf.destroy();
 
-	var n_ovlp = 0, n_missing = 0;
+	var n_true_ovlp = 0, n_missing = 0, n_incorrect_tophit = 0;
 	for (var key in h) {
-		++n_ovlp;
-		if (h[key] > 0) ++n_missing;
+		++n_true_ovlp;
+		if (h[key][0] > 0) {
+			++n_missing;
+			// print("missing\t" + key);
+		}
+		if (h[key][0] < 0 && h[key][4] > h[key][5]) ++n_incorrect_tophit;
 	}
-	print(n_ovlp + " overlaps inferred from the reference mapping");
+	print(n_true_ovlp + " overlaps inferred from the reference mapping");
+	print(n_ovlp + " overlaps found by the read overlapper");
+	print(n_pass_ovlp + " overlaps passed the length filter");
 	print(n_missing + " missed by the read overlapper");
-	print((100 * (1 - n_missing / n_ovlp)).toFixed(2) + "% sensitivity");
+	print(n_incorrect_tophit + " with incorrect top hits");
+	print((100 * (1 - n_missing / n_true_ovlp)).toFixed(5) + "% sensitivity");
+	print((100 * n_pass_true_ovlp / n_pass_ovlp).toFixed(5) + "% precision");
+	print(n_pass_true_ovlp);
+	print(n_pass_ovlp);
 }
 
 function paf_vcfstat(args)
