@@ -96,7 +96,7 @@ Otherwise, please cite the original minimap2 paper:
 
 ## Reproducing the experiment in the preprint
 
-Scripts to reproduce the experiments in our preprint are located in the `scripts/` directory. Running `run_benchmark.sh` will download the data, build the tools, extract centromeric reads, and perform assembly. Each step is encapsulated in its own script, allowing you to run specific steps independently. For details, see the contents of `run_benchmark.sh`. Note that `run_benchmark.sh` creates large files in the current directory, so be cautious about where you run it.
+The experiments presented in the preprint were conducted using the version tagged `benchmark`. The source code used is also archived on Zenodo, with the DOI [10.5281/zenodo.17143522](https://doi.org/10.5281/zenodo.17143522). Scripts to reproduce the experiments in our preprint are located in the `scripts/` directory. Running `run_benchmark.sh` will download the data, build the tools, extract centromeric reads, and perform assembly. Each step is encapsulated in its own script, allowing you to run specific steps independently. For details, see the contents of `run_benchmark.sh`. Note that `run_benchmark.sh` creates large files in the current directory, so be cautious about where you run it.
 
 ## Limitations
 
