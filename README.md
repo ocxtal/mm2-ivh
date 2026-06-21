@@ -88,11 +88,11 @@ The following options are experimental:
 
 Please cite the following preprint if you use mm2-ivh with interval hashing enabled:
 
-* Hajime Suzuki, Masahiro Sugawa, Yoshitaka Sakamoto, and Yuichi Shiraishi. "mm2-ivh: simple and precise overlap detection in alpha satellite HORs with interval hashing." *bioRxiv*, 2025.
+* Hajime Suzuki, Masahiro Sugawa, Yoshitaka Sakamoto, and Yuichi Shiraishi. "mm2-ivh: simple and precise overlap detection in alpha satellite HORs with interval hashing." *Bioinformatics*, 2025. (DOI: [10.1093/bioinformatics/btaf648](https://doi.org/10.1093/bioinformatics/btaf648))
 
 Otherwise, please cite the original minimap2 paper:
 
-* Heng Li. "Minimap2: pairwise alignment for nucleotide sequences." *Bioinformatics*, 2018.
+* Heng Li. "Minimap2: pairwise alignment for nucleotide sequences." *Bioinformatics*, 2018. (DOI: [10.1093/bioinformatics/bty191](https://doi.org/10.1093/bioinformatics/bty191))
 
 ## Reproducing the experiment in the preprint
 
